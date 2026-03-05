@@ -20,7 +20,7 @@ jobs:
             pkgarch: "aarch64_generic",
             target: "rockchip",
             subtarget: "armv8",
-            vermagic: "5.15.167"
+            vermagic: "0919bf77bd78281b8293e21504faecfb"
           }
         ]
       fail-fast: false
@@ -32,7 +32,7 @@ jobs:
       - name: Install Python dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y python3-pyelftools
+          sudo apt-get install -y python3-pyelftools tree
 
       - name: Cache OpenWrt SDK
         id: cache-sdk
@@ -56,6 +56,7 @@ jobs:
             exit 1
           fi
           
+          echo "Found SDK: $SDK_FILE"
           wget "https://downloads.openwrt.org/releases/${{ matrix.build_env.tag }}/targets/${{ matrix.build_env.target}}/${{ matrix.build_env.subtarget}}/${SDK_FILE}"
           
           if [[ "$SDK_FILE" == *.tar.zst ]]; then
@@ -65,10 +66,15 @@ jobs:
           fi
           
           rm "$SDK_FILE"
+          
+          # Показываем содержимое после распаковки
+          echo "SDK extracted:"
+          ls -la openwrt-sdk-*/
 
       - name: Setup SDK and feeds
         run: |
           SDK_DIR=$(find . -maxdepth 1 -name "openwrt-sdk-*" -type d | head -n1)
+          echo "SDK_DIR: $SDK_DIR"
           WORKSPACE_DIR=$(pwd)
           
           cd "$SDK_DIR"
@@ -92,24 +98,73 @@ jobs:
           SDK_DIR=$(find . -maxdepth 1 -name "openwrt-sdk-*" -type d | head -n1)
           cd "$SDK_DIR"
           
+          echo "Starting build in: $(pwd)"
+          
+          # Сначала покажем структуру package/
+          echo "Package directory contents:"
+          ls -la package/
+          
           make package/kmod-amneziawg/{download,prepare,compile} V=s || true
           make package/luci-proto-amneziawg/{download,prepare,compile} V=s
           make package/amneziawg-tools/{download,prepare,compile} V=s
+          
+          # После сборки покажем где искать пакеты
+          echo "Looking for built packages..."
+          echo "In bin/packages/:"
+          find bin/packages -name "*.ipk" -o -name "*.apk" 2>/dev/null || echo "No packages in bin/packages"
+          
+          echo "In bin/targets/:"
+          find bin/targets -name "*.ipk" -o -name "*.apk" 2>/dev/null || echo "No packages in bin/targets"
+          
+          # Полный поиск всех пакетов
+          echo "Full search for packages:"
+          find . -name "*.ipk" -o -name "*.apk" 2>/dev/null | grep -E "(amneziawg|luci)" || echo "No packages found at all"
 
       - name: Prepare artifacts
         run: |
           SDK_DIR=$(find . -maxdepth 1 -name "openwrt-sdk-*" -type d | head -n1)
+          echo "SDK_DIR for artifacts: $SDK_DIR"
           
           mkdir -p awgrelease
           postfix="v${{ matrix.build_env.tag }}_${{ matrix.build_env.pkgarch}}_${{ matrix.build_env.target}}_${{ matrix.build_env.subtarget}}"
+          echo "Postfix: $postfix"
           
-          find "$SDK_DIR/bin/packages" -name "amneziawg-tools*.?pk" -exec cp {} "awgrelease/amneziawg-tools_${postfix}.${file##*.}" \;
-          find "$SDK_DIR/bin/packages" -name "luci-proto-amneziawg*.?pk" -exec cp {} "awgrelease/luci-proto-amneziawg_${postfix}.${file##*.}" \;
-          find "$SDK_DIR/bin/packages" -name "luci-i18n-amneziawg-ru*.?pk" -exec cp {} "awgrelease/luci-i18n-amneziawg-ru_${postfix}.${file##*.}" \;
-          find "$SDK_DIR/bin/targets" -name "kmod-amneziawg*.?pk" -exec cp {} "awgrelease/kmod-amneziawg_${postfix}.${file##*.}" \;
+          # Поиск и копирование с подробным выводом
+          echo "Searching for amneziawg-tools..."
+          find "$SDK_DIR" -name "amneziawg-tools*.ipk" -o -name "amneziawg-tools*.apk" 2>/dev/null | while read file; do
+            echo "Found: $file"
+            ext="${file##*.}"
+            cp "$file" "awgrelease/amneziawg-tools_${postfix}.${ext}"
+          done
+          
+          echo "Searching for luci-proto-amneziawg..."
+          find "$SDK_DIR" -name "luci-proto-amneziawg*.ipk" -o -name "luci-proto-amneziawg*.apk" 2>/dev/null | while read file; do
+            echo "Found: $file"
+            ext="${file##*.}"
+            cp "$file" "awgrelease/luci-proto-amneziawg_${postfix}.${ext}"
+          done
+          
+          echo "Searching for luci-i18n-amneziawg-ru..."
+          find "$SDK_DIR" -name "luci-i18n-amneziawg-ru*.ipk" -o -name "luci-i18n-amneziawg-ru*.apk" 2>/dev/null | while read file; do
+            echo "Found: $file"
+            ext="${file##*.}"
+            cp "$file" "awgrelease/luci-i18n-amneziawg-ru_${postfix}.${ext}"
+          done
+          
+          echo "Searching for kmod-amneziawg..."
+          find "$SDK_DIR" -name "kmod-amneziawg*.ipk" -o -name "kmod-amneziawg*.apk" 2>/dev/null | while read file; do
+            echo "Found: $file"
+            ext="${file##*.}"
+            cp "$file" "awgrelease/kmod-amneziawg_${postfix}.${ext}"
+          done
+          
+          # Покажем что получилось
+          echo "Final awgrelease directory contents:"
+          ls -la awgrelease/ || echo "awgrelease is empty!"
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: amneziawg-${{ matrix.build_env.target }}-${{ matrix.build_env.subtarget }}
           path: awgrelease/
+          if-no-files-found: warn
