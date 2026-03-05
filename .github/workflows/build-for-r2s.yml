@@ -20,7 +20,7 @@ jobs:
             pkgarch: "aarch64_generic",
             target: "rockchip",
             subtarget: "armv8",
-            vermagic: "0919bf77bd78281b8293e21504faecfb"
+            vermagic: "5.15.167-1-0919bf77bd78281b8293e21504faecfb"
           }
         ]
       fail-fast: false
